@@ -1,0 +1,299 @@
+---
+title: "explore.rmd"
+output: pdf_document
+author: "Rachel Gao and Team" 
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r load packages and set options, include=FALSE}
+library(dplyr)
+library(tidyverse)
+library(effsize)
+library(car)
+library(stargazer)
+library(sandwich)
+library(lmtest)
+library(knitr)
+
+theme_set(theme_bw())
+
+options(tinytex.verbose = TRUE)
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning = FALSE)
+```
+
+```{r load explore data}
+explore <- read_csv('Dataset/Clean/explore.csv')
+smoking_explore <- read_csv('Dataset/Clean/smoking_explore.csv')
+```
+
+# exploratory analysis on main model
+```{r perform analysis on explore dataset}
+# filter to remove any cases of extreme BMI above 50, extreme Cholesterol_Ratio above 10, extreme Glycohemoglobin above 12 
+# as they are likely not representative of the underlying overall population
+explore %>% filter(BMI >= 50) %>% nrow()
+explore %>% filter(Cholesterol_Ratio >= 10) %>% nrow()
+explore %>% filter(Glycohemoglobin >= 12) %>% nrow()
+
+explore <- explore %>% 
+  filter(BMI < 50 & Cholesterol_Ratio < 10 & Glycohemoglobin < 12)
+nrow(explore)
+
+# evaluate the normality of Cholesterol_Ratio to ensure it's not heavy tailed
+explore %>%
+  ggplot(aes(x = Cholesterol_Ratio)) +
+  geom_histogram(bins = 100) +
+  xlab('cholesterol ratio') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of cholesterol ratio")
+  
+# evaluate the normality of BMI to ensure it's not heavy tailed
+explore %>%
+  ggplot(aes(x = BMI)) +
+  geom_histogram(bins = 100) +
+  xlab('BMI') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of BMI")
+
+# evaluate the normality of glycohemoglobin to ensure it's not heavy tailed
+explore %>%
+  ggplot(aes(x = Glycohemoglobin)) +
+  geom_histogram(bins = 100) +
+  xlab('glycohemoglobin') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of glycohemoglobin")
+
+# evaluate the normality of age to ensure it's not heavy tailed
+explore %>%
+  ggplot(aes(x = Age)) +
+  geom_histogram(bins = 100) +
+  xlab('age') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of age")
+
+# evaluate the number of male and female respondents to ensure there isn't a huge class imbalance
+explore %>%
+  ggplot(aes(x = Gender)) +
+  geom_bar() +
+  xlab('gender') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of gender")
+
+# check for correlation between each independent variable and Cholesterol_Ratio, correlation is consistent 
+# with our intuition that each independent variable and Cholesterol_Ratio are somewhat correlated
+correlations <- data.frame(
+  independent_variable = c("BMI", "Glycohemoglobin", "Age", "Gender"),
+  dependent_variable = c("Cholesterol_Ratio", "Cholesterol_Ratio", "Cholesterol_Ratio", "Cholesterol_Ratio"),
+  Correlation = c(
+    cor(explore$BMI, explore$Cholesterol_Ratio),
+    cor(explore$Glycohemoglobin, explore$Cholesterol_Ratio),
+    cor(explore$Age, explore$Cholesterol_Ratio),
+    cor(ifelse(explore$Gender == 'Male', 0, 1), explore$Cholesterol_Ratio)
+  )
+)
+
+# Reshape the data frame
+correlations_table <- correlations %>%
+  pivot_wider(names_from = dependent_variable, values_from = Correlation)
+
+# Rename columns
+colnames(correlations_table) <- c("Independent Variables", "Cholesterol Ratio")
+
+# Create a title
+table_title <- "Correlation Table"
+
+# Print the table using knitr
+kable(
+  correlations_table,
+  format = "html",
+  caption = table_title,
+  col_widths = c("10%", "15%"),  # Adjust column widths
+  table.attr = 'style="width:40%;"'  # Adjust table width
+)
+```
+
+```{r scatter plot of each X variable and Cholesterol_Ratio}
+explore %>% 
+  ggplot(aes(x = BMI, y = Cholesterol_Ratio)) +
+  geom_point() +
+  geom_smooth() +
+  xlab('BMI') +
+  ylab('cholesterol ratio') + 
+  ggtitle("scatter plot of BMI and cholesterol ratio")
+
+explore %>% ggplot(aes(x = Glycohemoglobin, y = Cholesterol_Ratio)) +
+  geom_point() +
+  geom_smooth() +
+  xlab('glycohemoglobin') +
+  ylab('cholesterol ratio') + 
+  ggtitle("scatter plot of glycohemoglobin and cholesterol ratio")
+
+explore %>% ggplot(aes(x = Age, y = Cholesterol_Ratio)) +
+  geom_point() +
+  geom_smooth() +
+  xlab('age') +
+  ylab('cholesterol ratio') + 
+  ggtitle("scatter plot of age and cholesterol ratio")
+
+# all scatter plots do not have extreme clustering and shows some relationship between the X variable and Cholesterol
+```
+
+```{r regression models}
+# primary model
+main_mod <- lm(Cholesterol_Ratio ~ BMI, data=explore)
+main_se <- coeftest(main_mod, vcov = vcovHC)
+main_se
+
+# supplemental model 1
+supp_mod_1 <- lm(Cholesterol_Ratio ~ BMI + Glycohemoglobin, data=explore)
+supp_se_1 <- coeftest(supp_mod_1, vcov = vcovHC)
+supp_se_1
+
+# supplemental model 2
+supp_mod_2 <- lm(Cholesterol_Ratio ~ BMI + Glycohemoglobin + Age, data=explore)
+supp_se_2 <- coeftest(supp_mod_2, vcov = vcovHC)
+supp_se_2
+
+# supplemental model 3
+supp_mod_3 <- lm(Cholesterol_Ratio ~ BMI + Glycohemoglobin + Age + Gender, data=explore)
+supp_se_3 <- coeftest(supp_mod_3, vcov = vcovHC)
+supp_se_3
+
+# evaluate the possibility of near-perfect collinearity, there is no strong indication there is an issue with near-perfect collinearity in our data
+vif(supp_mod_3)
+
+plot(supp_mod_3)
+
+```
+
+```{r stargazer table, warning=False}
+stargazer(
+  main_mod, supp_mod_1, supp_mod_2, supp_mod_3, 
+  type = 'text', 
+  omit.stat=c("rsq","f"), 
+  se = list(main_se[,"Std. Error"], supp_se_1[,"Std. Error"], supp_se_2[,"Std. Error"], supp_se_3[,"Std. Error"])
+)
+```
+
+# exploratory analysis on smoking model
+```{r perform analysis on explore dataset}
+# filter to remove any cases of extreme BMI above 50, extreme Cholesterol_Ratio above 10, extreme Glycohemoglobin above 12 
+# as they are likely not representative of the underlying overall population
+smoking_explore %>% filter(BMI >= 50) %>% nrow()
+smoking_explore %>% filter(Cholesterol_Ratio >= 10) %>% nrow()
+smoking_explore %>% filter(Glycohemoglobin >= 12) %>% nrow()
+
+smoking_explore <- smoking_explore %>% 
+  filter(BMI < 50 & Cholesterol_Ratio < 10 & Glycohemoglobin < 12)
+nrow(explore)
+
+# evaluate the normality of Cholesterol_Ratio to ensure it's not heavy tailed
+smoking_explore %>%
+  ggplot(aes(x = Cholesterol_Ratio)) +
+  geom_histogram(bins = 100)  +
+  xlab('cholesterol ratio') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of cholesterol ratio")
+
+# evaluate the normality of BMI to ensure it's not heavy tailed
+smoking_explore %>%
+  ggplot(aes(x = BMI)) +
+  geom_histogram(bins = 100)  +
+  xlab('BMI') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of BMI")
+
+# evaluate the normality of glycohemoglobin to ensure it's not heavy tailed
+smoking_explore %>%
+  ggplot(aes(x = Glycohemoglobin)) +
+  geom_histogram(bins = 100) +
+  xlab('glycohemoglobin') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of glycohemoglobin")
+
+# evaluate the normality of age to ensure it's not heavy tailed
+smoking_explore %>%
+  ggplot(aes(x = Age)) +
+  geom_histogram(bins = 100) +
+  xlab('age') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of age")
+
+# evaluate the number of male and female respondents to ensure there isn't a huge class imbalance
+smoking_explore %>%
+  ggplot(aes(x = Gender)) +
+  geom_bar() +
+  xlab('gender') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of gender")
+
+# evaluate the normality of num_cigarettes to ensure it's not heavy tailed
+smoking_explore %>%
+  ggplot(aes(x = num_cigarettes)) +
+  geom_histogram(bins = 100) +
+  xlab('number of cigarettes smoked in a year') +
+  ylab('number of individuals') + 
+  ggtitle("histogram of number of cigarettes smoked in a year")
+
+# check for correlation between each independent variable and Cholesterol_Ratio, correlation is consistent 
+# with our intuition that each independent variable and Cholesterol_Ratio are somewhat correlated
+cor(smoking_explore$BMI, smoking_explore$Cholesterol_Ratio)
+cor(smoking_explore$Glycohemoglobin, smoking_explore$Cholesterol_Ratio)
+cor(smoking_explore$Age, smoking_explore$Cholesterol_Ratio)
+cor(ifelse(smoking_explore$Gender == 'Male', 0, 1), smoking_explore$Cholesterol_Ratio)
+cor(smoking_explore$num_cigarettes, smoking_explore$Cholesterol_Ratio)
+```
+
+```{r scatter plot of each X variable and Cholesterol_Ratio}
+smoking_explore %>% ggplot(aes(x = BMI, y = Cholesterol_Ratio)) +
+  geom_point() +
+  geom_smooth() +
+  xlab('BMI') +
+  ylab('cholesterol ratio') + 
+  ggtitle("scatter plot of BMI and cholesterol ratio")
+
+smoking_explore %>% ggplot(aes(x = Glycohemoglobin, y = Cholesterol_Ratio)) +
+  geom_point() +
+  geom_smooth() +
+  xlab('glycohemoglobin') +
+  ylab('cholesterol ratio') + 
+  ggtitle("scatter plot of glycohemoglobin and cholesterol ratio")
+
+smoking_explore %>% ggplot(aes(x = Age, y = Cholesterol_Ratio)) +
+  geom_point() +
+  geom_smooth() +
+  xlab('age') +
+  ylab('cholesterol ratio') + 
+  ggtitle("scatter plot of age and cholesterol ratio")
+
+smoking_explore %>% ggplot(aes(x = num_cigarettes, y = Cholesterol_Ratio)) +
+  geom_point() +
+  geom_smooth() +
+  xlab('number of cigarettes smoked in a year') +
+  ylab('cholesterol ratio') + 
+  ggtitle("scatter plot of number of cigarettes smoked in a year and cholesterol ratio")
+
+# all scatter plots do not have extreme clustering and shows some relationship between the X variable and Cholesterol_Ratio
+```
+
+```{r regression models}
+# smoking model
+smoking_mod <- lm(Cholesterol_Ratio ~ BMI + Glycohemoglobin + Age + Gender + num_cigarettes, data=smoking_explore)
+smoking_se <- coeftest(smoking_mod, vcov = vcovHC)
+smoking_se
+
+# evaluate the possibility of near-perfect collinearity, there is no strong indication there is an issue with near-perfect collinearity in our data
+vif(smoking_mod)
+
+plot(smoking_mod)
+```
+
+```{r stargazer table}
+stargazer(
+  smoking_mod,
+  type = 'text', 
+  omit.stat=c("rsq","f"), 
+  se = list(smoking_se[,"Std. Error"])
+)
+```

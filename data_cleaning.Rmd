@@ -1,0 +1,139 @@
+---
+title: "data_cleaning.rmd"
+output: pdf_document
+author: "Rachel Gao and Team" 
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load raw data}
+cholesterol <- read_tsv('Dataset/Raw/25504-0129-Data.tsv')
+hdl <- read_tsv('Dataset/Raw/25504-0111-Data.tsv')
+
+bmi <- read_tsv('Dataset/Raw/25504-0013-Data.tsv')
+demo <- read_tsv('Dataset/Raw/25504-0001-Data.tsv')
+
+glycohemoglobin <- read_tsv('Dataset/Raw/25504-0110-Data.tsv')
+
+smoking <- read_tsv('Dataset/Raw/25504-0242-Data.tsv')
+```
+
+```{r filter for respondents with valid BMI}
+bmi <- bmi %>% filter(!is.na(BMXBMI))
+nrow(bmi)
+```
+
+```{r filter for respondents with valid cholesterol measurement}
+cholesterol <- cholesterol %>% filter(!is.na(LBXTC))
+nrow(cholesterol)
+
+hdl <- hdl %>% filter(!is.na(LBDHDD))
+nrow(hdl)
+```
+
+```{r merge BMI and Cholesterol together to create a main df}
+chol <- merge(cholesterol, hdl, by = 'SEQN') %>% select(SEQN, LBXTC, LBDHDD)
+
+main <- merge(bmi, chol, by = 'SEQN') %>% select(SEQN, BMXBMI, LBXTC, LBDHDD)
+
+# rename the columns
+names(main)[2] <- "BMI"
+names(main)[3] <- "Cholesterol"
+names(main)[4] <- "HDL"
+
+nrow(main)
+```
+
+```{r filter for respondents with valid glycohemoglobin measurement}
+glycohemoglobin <- glycohemoglobin %>% filter(!is.na(LBXGH))
+nrow(glycohemoglobin)
+```
+
+```{r filter for LBXGH}
+glycohemoglobin <- glycohemoglobin[,c('SEQN','LBXGH')]
+```
+
+```{r merge glycohemoglobin into the main df}
+sub_1 <- merge(main, glycohemoglobin, by = 'SEQN') %>% select(SEQN, BMI, Cholesterol, HDL, LBXGH)
+
+# rename the column
+names(sub_1)[5] <- "Glycohemoglobin"
+
+nrow(sub_1)
+```
+
+```{r filter for respondents with valid age and gender}
+demo <- demo %>% filter(!is.na(RIAGENDR) & !is.na(RIDAGEYR))
+nrow(demo)
+```
+
+```{r filter for RIAGENDR and RIDAGEYR}
+demo <- demo[,c('SEQN','RIAGENDR', 'RIDAGEYR')]
+names(demo)[2] <- "Gender"
+names(demo)[3] <- "Age"
+
+demo$Gender <- ifelse(demo$Gender == 1, "Male", "Female")
+```
+
+```{r merge age & gender into the main df}
+sub_2 <- merge(sub_1, demo, by = 'SEQN') %>% select(SEQN, BMI, Cholesterol, HDL, Glycohemoglobin, Age, Gender)
+
+nrow(sub_2)
+```
+
+```{r calculate cholesterol ratio}
+sub_2 <- sub_2 %>%  
+  mutate('Cholesterol_Ratio' = Cholesterol/HDL)
+```
+
+
+```{r save the cleaned datasets to csv & split to explore and confirm sets}
+#write.csv(sub_2, "Dataset/Clean/main.csv", row.names = FALSE)
+
+#explore <- sub_2 %>% sample_frac(0.3)
+#confirm <- anti_join(sub_2, explore, by='SEQN')
+#write.csv(explore, "Dataset/Clean/explore.csv", row.names = FALSE)
+#write.csv(confirm, "Dataset/Clean/confirm.csv", row.names = FALSE)
+```
+
+
+Of the 5372 respondents who had valid age & gender, and value measurements for BMI, Cholesterol, and Glycohemoglobin, only around 22% (1207) answered they have smoked at least 100 cigarettes in life and provided responses for the frequency of cigarette smoking. We are unable to determine the smoking habit of the other 78%. 
+
+Consider the response on frequency of smoking could be inaccurate as respondents could lie about their frequency of smoking or feel a social pressure to under-report their frequency of smoking, and the physical examination results on BMI, Cholesterol and Glycohemoglobin are factual while smoking habits is subjective, we do not believe we should narrow down our main dataset to only include the 1207 respondents who answered the smoking habit question. Therefore, we will treat the sample of 1207 respondents as a separate dataset from the main dataset of the 5372 respondents and analyze the effect of smoking on Cholesterol separately.
+
+```{r filter for respondents with valid smoking habits response}
+smoking <- smoking %>% filter(!is.na(SMD641) & !is.na(SMD650) & SMD641 <= 30 & SMD650 <= 95)
+nrow(smoking)
+```
+
+```{r calculate total number of cigarettes a year & filter for only variables of interest}
+smoking <- smoking[,c('SEQN', 'SMD641', 'SMD650')]
+
+smoking$num_cigarettes <- smoking$SMD641 * smoking$SMD650
+```
+
+```{r merge num_cigarettes into sub_1 data frame}
+sub_3 <- merge(sub_2, smoking, by = 'SEQN') %>% select(SEQN, BMI, Cholesterol, HDL, Glycohemoglobin, Age, Gender, Cholesterol_Ratio, num_cigarettes)
+nrow(sub_3)
+```
+
+
+```{r save the cleaned smoking datasets to csv & split to explore and confirm sets}
+#write.csv(sub_3, "Dataset/Clean/smoking.csv", row.names = FALSE)
+
+#smoking_explore <- sub_3 %>% sample_frac(0.3)
+#smoking_confirm <- anti_join(sub_3, smoking_explore, by='SEQN')
+#write.csv(smoking_explore, "Dataset/Clean/smoking_explore.csv", row.names = FALSE)
+#write.csv(smoking_confirm, "Dataset/Clean/smoking_confirm.csv", row.names = FALSE)
+```
+
+
+
+
